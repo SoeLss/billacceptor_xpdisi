@@ -1,487 +1,298 @@
-import pigpio
-import time
-import datetime
 import os
-import requests
-from flask import Flask, request, jsonify
-import psutil
+import re
 import subprocess
-import threading
-from dotenv import load_dotenv
-from flask_cors import CORS
+import logging
 
-##PRODUCTION##
-load_dotenv()
+polinema = ("""                              .:x;.                              
+                         :;XX; .::..+$x:.                        
+                     :xX; :+Xx:   .;XX+.:+X+                     
+                  ;$;.:XX:             .;Xx.:XX                  
+               ;$: +$:                     .+$:.$x               
+            .$; ;$:      X  &;+;;:+ x.$&:.     +X.:&:            
+          ;$::$;   ::X+;&X; +.x:XX:X$++:;Xx:X    :$;.$;          
+        ;X.;X.  ..+.$++:.                 ;$ :$:+   x+.X;        
+      :X.;X.  +;;+;;         :  x  :.        :Xx::x  .x+.X:      
+    .&::$.  :;.XX:           : .:;  ;           :++ +   $::$.    
+   ;X X;   x: X    + +;   .;X:+: ;: x+.   :X +.   X.     :$ X+   
+  X;:&.   : .+   +:    :;     +: +:     :;     +.  .XXX    $;:$  
+.$.;x   .++;;   x        .;;:;+: X;;:;;.        ;:   ++$;   ;X.$:
+:x X    ;;:+     +.    ;:;;x$;:. X+;X+;+:+     x.     XX;    +.+;
+:x X   ++:       ::  :;;. +.  +: X+:  + .+:;   x      .X:+   +:+;
+:x X    ;X:     :.  ;.;  X+xx$;: X;XXx+$  ;.+   ;      +x    +:+;
+:X X          ..X  ; X::::  :.;+ +:.;  .:.:;:;  .;.          +.x;
+.& X       .+      +:.  +   &.+X ;.:$.  X   ++      ::       X $:
+ $.x:      .+     .;x:;+&+;;x:+X ; +;;;;$+;;X::     .:       X.& 
+ +::X      .;     .+;   $   ; ;X : x.:  X.  X::     .:      ;x.x 
+ .X X      .x;..   ;:: :+XXx&+:X..:$$+xx$;..:;   ..:x:      X:x: 
+  $:;;          +  .;+.  ; :++:.  :$+: :.  X::  +.         .x.$  
+  .x &.          +  .;:+;;;::+;+;;;$::;:;+;;:  ::          $:+:  
+   x;.x           +   ;:;;+xX;+x;+++;X+;;:+   :.          ;;:X   
+    $ +;        .;      :+: &        : $:       ;        :$ $.   
+    :$ X.      .X      ;:;$$+$X;;;x$x+$$;::     ;:       X X:    
+     :+ $        .+;+++++++++++++++++++++++X+;:;        $.+;     
+      ++.$:   ;+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx+;.  .$.++      
+       ++ X:            ;;;::;;;.:;+;:;;;            :$ x;       
+        ;X +;       ;;. :++++++:X ;+++++: .:+       ;x X;        
+         .$ :X     ::+.:+      :X;      ;: +;;     x; $.         
+           X: Xx:. +;                       ;;..:x$ :X           
+            ;X+:  :+XXx+;:             .:;+XX+;  :+X;            
+               .:+X$X;.   .:::;;;;;;:::.  .;x$X+:.               
+                       ..:;+xXXXXXXXX+;:..                       """)
 
-#ENVIRONMENT VARIABLES
-ID_DEVICE = os.getenv("ID_DEVICE")
-TOKEN_API = os.getenv("TOKEN_API")
-INVOICE_API = os.getenv("INVOICE_API")
-BILL_API = os.getenv("BILL_API")
-LOG_DIR = os.getenv("LOG_DIR")
-PORT = int(os.getenv("PORT"))
-LOG_FILE = os.path.join(LOG_DIR, "log.txt")
-LOG_TRANS = os.path.join(LOG_DIR, "logpayment.txt")
+ugm = ("""                                +.                               
+                             .:$+$x:                             
+                     :xXXx+;:. :$x  :;;++X$x:                    
+                   Xx.   :;+XXx:  ;xXX+;:   :$+                  
+             $$: .&. x&+:       ++       :$$. ;$.x$+X            
+             X   &; +$         ;;::        +&  &;  .$            
+            .+:  $: X:         x  X        .&..&:.;XX+;.         
+        .X$+:.:+$$$ :$       :+X .$x       +x ;&$;     ;$+       
+       Xx  +XXX:  x$ ;x    .+X $ .;++:    ;X +$. ;$&$&$; :X      
+      $. xX.   .+$.:&:;$  :$+++X.::+:.$  x+ $+ xX.     ;$ :$     
+     $: X;        ;+ $X $XX+;+&$&&XXxX+x&:;&:;$         .X :x    
+    X; +:           $:XXX$$;::$.+x.X;;;$xxx;X:           .X .X.  
+.:+X .X.         .;XX+XX:+;;+;+xXXx+;.+;;+$X+$;;:          xx::&+
+ X+;&;  ...  ++X+++;XX:+:;X&;+;;+++;.x&+;:;;$;++;++xX+;;+x  $:;: 
+  $ +;  +;   :+X::X$+ .;&+:&:+ .++::X++;&;:  $:.Xx:    ;X  .X +. 
+  X ;;    .&;     ++  ;$ ++ X+:&&&$:&.;$xXx  .$.  :$&;     .X :: 
+ +; x:      ;+:.:X&   &&;::XX;&;  xx+:+:x&&:  ;+::+$+       &..$ 
+ &: &:       :X+;++  +X.;:+x;x +XX:.XXx;$x;$  :&XXX;        $: &:
+:&:.&.         X$X+  ++;;++X+; X.:; Xx++$$;&  .&:+;        .&:.&:
+ &; Xx          X+X  :&$X$$;+++    X;+x;+&&+  :$;&X;      x&: xx 
+ .&. :&&x;X$&$:..&$:  x$.XX.X;$:..+$:x+:&x$   XX&$:  .....   $x  
+   $$:     .:X&&XX$$   +&;$ $:;$$$X;:&; +X:  +X+x:. ;$&&Xx$&+X+  
+   +x:xX&&X:  ;XX+$x&:Xx X&&:X$X++$+X:&$::X xXx;   +$;. .$X   .$:
+ ++   :$: .xX:    X+;xX:X+;+x$XX&&&&X;+. ;;$;++;      :$; ;&XXx+:
+  .:;X$  X$       ;+;++x&;+;:X;X+X.x&:+:XX:+:;Xx        $; X+    
+     $+ +$        .+.X..&;X&&$;:..:+$&$;++:  X.x        X; X;    
+     xx ;$        $&: .X.+++Xxx$XX+X$Xx+.+:;  :+       +X ;$     
+      $; ;$       X. .x;xx+   x:Xx:+    .:;$+: :;    .X: ;X      
+       xx  x+    ;:.x:.       X:x+ x          ++x   +; :$:       
+         xx .X; .&+:          & +x X               X. X:         
+           X+ X;             ;x xX ;x          +$&&+:$           
+            +X:x;;X$;       +X  X$. +X     :&X.  ;XXx.           
+            :&$$Xx:   ;$$$&$; .$::&: .x$$X;  :XX.                
+                   ;X+:     ;$$:   $&+;::;+$x.                   
+                       :;;;;:  X..X   :::.                       
+                                XX                               """)
 
-# PIN CONFIGURATION
-BILL_ACCEPTOR_PIN = 14
-EN_PIN = 15
+# Konfigurasi logging
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-# KONFIGURASI COIN HOPPER & SENSOR
-HOPPER_PIN = int(os.getenv("HOPPER_PIN", 18))
-COIN_VALUE = int(os.getenv("COIN_VALUE", 1000))
-SENSOR_PIN = int(os.getenv("SENSOR_PIN", 23)) ## TAMBAHAN UNTUK INFRARED ##
+def print_log(message, level="info"):
+    """Mencetak pesan ke terminal dan mencatat log."""
+    if level == "info":
+        print(f"✅ {message}")
+        logging.info(message)
+    elif level == "warning":
+        print(f"⚠️ {message}")
+        logging.warning(message)
+    elif level == "error":
+        print(f"❌ {message}")
+        logging.error(message)
 
-# TRANSACTION CONFIGURATION
-TIMEOUT = 180
-DEBOUNCE_TIME = 0.05
-TOLERANCE = 2
-MAX_RETRY = 0 
-
-# MAPPING PULSE TO MONEY
-PULSE_MAPPING = {
-    1: 1000,
-    2: 2000,
-    5: 5000,
-    10: 10000,
-    20: 20000,
-    50: 50000,
-    100: 100000
-}
-
-if not os.path.exists(LOG_DIR):
-    os.makedirs(LOG_DIR)
-
-# FLASK APP INITIALIZATION
-app = Flask(__name__)
-CORS(app)
-
-# GLOBAL VARIABLES
-pulse_count = 0
-pending_pulse_count = 0
-last_pulse_time = time.time()
-transaction_active = False
-total_inserted = 0
-id_trx = None
-payment_token = None
-product_price = 0
-last_pulse_received_time = time.time()
-timeout_thread = None 
-insufficient_payment_count = 0
-dispensed_coin_count = 0 ## TAMBAHAN ##
-hopper_callback = None ## TAMBAHAN ##
-transaction_lock = threading.Lock()
-log_lock = threading.Lock()
-print_lock = threading.Lock()
-
-# SYSTEM LOGGING
-def log_system(message):
-    timestamp = datetime.datetime.now().strftime("[%Y-%m-%d %H:%M:%S]")
-    with log_lock:
-        with open(LOG_FILE, "a") as log:
-            log.write(f"{timestamp} {message}\n")
-            
-    with print_lock:
-        print(f"{timestamp} {message}")
-
-# TRANSACTION LOGGING
-def log_trans(message):
-    timestamp = datetime.datetime.now().strftime("[%Y-%m-%d %H:%M:%S]")
-    with log_lock:
-        with open(LOG_TRANS, "a") as log:
-            log.write(f"{timestamp} {message}\n")
-            
-    with print_lock:
-        print(f"{timestamp} {message}")
-
-# PIGPIO INITIALIZATION
-pi = pigpio.pi()
-if not pi.connected:
-    log_system("Gagal terhubung ke pigpio daemon!")
-    exit()
-
-pi.set_mode(BILL_ACCEPTOR_PIN, pigpio.INPUT)
-pi.set_pull_up_down(BILL_ACCEPTOR_PIN, pigpio.PUD_UP)
-pi.set_mode(EN_PIN, pigpio.OUTPUT)
-pi.write(EN_PIN, 0)
-
-# INISIALISASI PIN HOPPER & SENSOR
-pi.set_mode(HOPPER_PIN, pigpio.OUTPUT)
-pi.write(HOPPER_PIN, 0)
-pi.set_mode(SENSOR_PIN, pigpio.INPUT, pigpio.PUD_UP) ## TAMBAHAN ##
-
-# FUNCTION TO FETCH INVOICE DETAILS
-def fetch_invoice_details():
+def run_command(command):
+    """Menjalankan perintah shell dengan subprocess dan menampilkan outputnya."""
     try:
-        response = requests.get(INVOICE_API, timeout=5)
-        response_data = response.json()
-
-        if response.status_code == 200 and "data" in response_data:
-            for invoice in response_data["data"]:
-                if not invoice.get("isPaid", False):
-                    log_system(f" Invoice ditemukan: {invoice['paymentToken']}, belum dibayar.")
-                    log_trans(f" Invoice ditemukan: {invoice['paymentToken']}, belum dibayar.")
-                    return invoice["ID"], invoice["paymentToken"], int(invoice["productPrice"])
-
-        log_system(" Tidak ada invoice yang belum dibayar.")
-    except requests.exceptions.RequestException as e:
-        log_system(f" Gagal mengambil data invoice: {e}")
-
-    return None, None, None
-
-# FUNCTION TO POST TRANSACTION STATUS
-def send_transaction_status():
-    global total_inserted, transaction_active, last_pulse_received_time, insufficient_payment_count
-
-    try:
-        response = requests.post(BILL_API, json={
-            "ID": id_trx,
-            "paymentToken": payment_token,
-            "productPrice": total_inserted
-        }, timeout=5)
-
-        if response.status_code == 200:
-            res_data = response.json()
-            log_system(f" Pembayaran sukses: {res_data.get('message')}, Waktu: {res_data.get('payment date')}")
-            log_trans(f" Pembayaran sukses: {res_data.get('message')}, Waktu: {res_data.get('payment date')}")
-            reset_transaction()
-
-        elif response.status_code == 400:
-            try:
-                res_data = response.json()
-                error_message = res_data.get("error") or res_data.get("message", "Error tidak diketahui")
-            except ValueError:
-                error_message = response.text
-
-            log_system(f" Gagal ({response.status_code}): {error_message}")
-
-            if "Insufficient payment" in error_message:
-                insufficient_payment_count += 1
-                log_system(f" Uang kurang, percobaan {insufficient_payment_count}/{MAX_RETRY}")
-                log_trans(f" Uang kurang, percobaan {insufficient_payment_count}/{MAX_RETRY}")
-
-                if insufficient_payment_count >= MAX_RETRY:
-                    log_system(" Pembayaran kurang melebihi batas! Transaksi dibatalkan.")
-                    log_trans(" Pembayaran kurang melebihi batas! Transaksi dibatalkan.")
-                    transaction_active = False  
-                    pi.write(EN_PIN, 0)  
-                    log_system(" EN PIN MATI")
-                    reset_transaction()  
-                else:
-                    log_system(f" Pembayaran kurang, percobaan {insufficient_payment_count}/{MAX_RETRY}. Silakan lanjutkan memasukkan uang...")
-                    log_trans(f" Pembayaran kurang, percobaan {insufficient_payment_count}/{MAX_RETRY}. Silakan lanjutkan memasukkan uang...")
-
-                    # Pastikan transaction_active tetap berjalan
-                    transaction_active = True
-                    pi.write(EN_PIN, 1)  # Bill acceptor tetap aktif
-                    log_system(f"EN Diaktifkan (inssufficient)")
-                    
-                    # Pastikan waktu timeout diperbarui agar tidak langsung reset
-                    last_pulse_received_time = time.time()
-
-                    # Jika belum mencapai retry maksimal, timer harus tetap berjalan
-                    threading.Thread(target=start_timeout_timer, daemon=True).start()
-
-            elif "Payment already completed" in error_message:
-                log_system(" Pembayaran sudah selesai sebelumnya. Reset transaksi.")
-                log_trans(" Pembayaran sudah selesai sebelumnya. Reset transaksi.")
-                transaction_active = False
-                pi.write(EN_PIN, 0)
-                reset_transaction()
-
-        else:
-            log_system(f" Respon tidak terduga: {response.status_code}")
-
-    except requests.exceptions.RequestException as e:
-        log_system(f" Gagal mengirim status transaksi: {e}")
-
-
-def closest_valid_pulse(pulses):
-    """Mendapatkan jumlah pulsa yang paling mendekati nilai yang valid."""
-    if pulses == 1:
-        return 1
-    if 2 < pulses < 5:
-        return 2
-    closest_pulse = min(PULSE_MAPPING.keys(), key=lambda x: abs(x - pulses) if x != 1 else float("inf"))
-    return closest_pulse if abs(closest_pulse - pulses) <= TOLERANCE else None
-
-# FUNCTION TO COUNT PULSES
-def count_pulse(gpio, level, tick):
-    """Menghitung pulsa dari bill acceptor dan mengonversinya ke nominal uang."""
-    global pulse_count, last_pulse_time, total_inserted, last_pulse_received_time, product_price, pending_pulse_count, timeout_thread
-
-    if not transaction_active:
-        return
-
-    current_time = time.time()
-
-    # DEBOUNCE LOGIC
-    if (current_time - last_pulse_time) > DEBOUNCE_TIME:
-        if pending_pulse_count == 0:
-            pi.write(EN_PIN, 0)
-        pending_pulse_count += 1
-        last_pulse_time = current_time
-        last_pulse_received_time = current_time 
-        with print_lock:
-            print(f" Pulsa diterima: {pending_pulse_count}")  
-        if timeout_thread is None or not timeout_thread.is_alive():
-            timeout_thread = threading.Thread(target=start_timeout_timer, daemon=True)
-            timeout_thread.start()
-
-# FUNCTION TO START THE TIMEOUT TIMER
-def start_timeout_timer():
-    global total_inserted, product_price, transaction_active, last_pulse_received_time, id_trx
-
-    with transaction_lock: 
-        while transaction_active:
-            current_time = time.time()
-            remaining_time = max(0, int(TIMEOUT - (current_time - last_pulse_received_time))) 
-            if (current_time - last_pulse_received_time) >= 2 and pending_pulse_count > 0:
-                    process_final_pulse_count()
-                    continue
-            if (current_time - last_pulse_received_time) >= 2 and total_inserted >= product_price:
-                    transaction_active = False
-                    pi.write(EN_PIN, 0) 
-                    log_system(" EN PIN MATI") 
-
-                    overpaid = max(0, total_inserted - product_price) 
-                    
-                    if overpaid > 0:
-                        dispense_change(overpaid)
-
-                    if total_inserted == product_price:
-                        log_system(f" Transaksi selesai, total: Rp.{total_inserted}")
-                        log_trans(f" Transaksi selesai, total: Rp.{total_inserted}")
-                    else:
-                        log_system(f" Transaksi selesai, kelebihan: Rp.{overpaid}")
-                        log_trans(f" Transaksi selesai, kelebihan: Rp.{overpaid}")
-
-                    send_transaction_status()
-                    trigger_transaction()
-            if remaining_time == 0:
-                    transaction_active = False
-                    pi.write(EN_PIN, 0) 
-                    log_system(" EN PIN MATI")
-
-                    remaining_due = max(0, product_price - total_inserted)
-                    overpaid = max(0, total_inserted - product_price) 
-
-                    if total_inserted < product_price:
-                        log_system(f" Timeout! Kurang: Rp.{remaining_due}")
-                        log_trans(f" Timeout! Kurang: Rp.{remaining_due}")
-                    elif total_inserted == product_price:
-                        log_system(f" Transaksi sukses, total: Rp.{total_inserted}")
-                        log_trans(f" Transaksi sukses, total: Rp.{total_inserted}")
-                    else:
-                        log_system(f" Transaksi sukses, kelebihan: Rp.{overpaid}")
-                        log_trans(f" Transaksi sukses, kelebihan: Rp.{overpaid}")
-                        
-                    send_transaction_status()
-                    transaction_active = False
-                    trigger_transaction()
-                    break
-            with print_lock:    
-                print(f"\r Timeout dalam {remaining_time} detik...", end="")
-            time.sleep(1)
-
-def process_final_pulse_count():
-    """Memproses pulsa yang terkumpul setelah tidak ada pulsa masuk selama 2 detik."""
-    global pending_pulse_count, total_inserted, pulse_count
-
-    if pending_pulse_count == 0:
-        return
-
-    # PULSE CORRECTION LOGIC
-    corrected_pulses = closest_valid_pulse(pending_pulse_count)
-
-    if corrected_pulses:
-        received_amount = PULSE_MAPPING.get(corrected_pulses, 0)
-        total_inserted += received_amount
-        remaining_due = max(product_price - total_inserted, 0)
-
-        log_system(f" Koreksi pulsa: {pending_pulse_count} -> {corrected_pulses} ({received_amount}) | Total: Rp.{total_inserted} | Sisa: Rp.{remaining_due}")
-        log_trans(f" Koreksi pulsa: {pending_pulse_count} -> {corrected_pulses} ({received_amount}) | Total: Rp.{total_inserted} | Sisa: Rp.{remaining_due}")
-    
-    else:
-        log_system(f" Pulsa {pending_pulse_count} tidak valid!")
-
-    pending_pulse_count = 0 
-    pi.write(EN_PIN, 1)
-    log_system(f"EN Diaktifkan (Correction)")
-    with print_lock:
-        print(" Koreksi selesai, EN_PIN diaktifkan kembali")
-
-# RESET TRANSACTION FUNCTION
-def reset_transaction():
-    global transaction_active, total_inserted, id_trx, payment_token, product_price, last_pulse_received_time, insufficient_payment_count, pending_pulse_count
-    transaction_active = False
-    total_inserted = 0
-    id_trx = None
-    payment_token = None
-    product_price = 0
-    last_pulse_received_time = time.time()  
-    insufficient_payment_count = 0  
-    pending_pulse_count = 0  
-    log_system(" Transaksi di-reset ke default.")
-
-# API ENDPOINTS ...
-@app.route('/api/system_stats', methods=['GET'])
-def get_system_stats():
-    cpu_percent = psutil.cpu_percent(interval=1)
-    
-    mem = psutil.virtual_memory()
-    ram_percent = mem.percent
-    ram_total = round(mem.total / (1024 ** 3), 2)
-    ram_used = round(mem.used / (1024 ** 3), 2)
-    
-    disk = psutil.disk_usage('/')
-    disk_percent = disk.percent
-    disk_total = round(disk.total / (1024 ** 3), 2)
-    disk_used = round(disk.used / (1024 ** 3), 2)
-
-    try:
-        output = subprocess.check_output(["vcgencmd", "measure_temp"]).decode("utf-8")
-        temperature = float(output.split("=")[1].split("'")[0])
-    except Exception as e:
-        temperature = None
-
-    uptime_seconds = time.time() - psutil.boot_time()
-    uptime_days = int(uptime_seconds // 86400)
-    uptime_hours = int((uptime_seconds % 86400) // 3600)
-    uptime_minutes = int((uptime_seconds % 3600) // 60)
-    uptime_seconds = int(uptime_seconds % 60)
-    if uptime_days > 0:
-        uptime_pi = f"{uptime_days}d {uptime_hours}h {uptime_minutes}m {uptime_seconds}s"
-    else:
-        uptime_pi = f"{uptime_hours}h {uptime_minutes}m {uptime_seconds}s"
-    
-    return jsonify({
-        "cpu": cpu_percent,
-        "ram": {
-            "percent": ram_percent,
-            "used": ram_used,
-            "total": ram_total
-        },
-        "disk": {
-            "percent": disk_percent,
-            "used": disk_used,
-            "total": disk_total
-        },
-        "temperature": temperature,
-        "uptime": uptime_pi
-    })
-    
-#API ENDPOINTS FOR PAYMENT LOGS
-@app.route('/api/payment_logs', methods=['GET'])
-def get_payment_logs():
-    try:
-        with open(LOG_TRANS, "r") as f:
-            lines = f.readlines()
-            last_lines = lines[-10:] if len(lines) >= 10 else lines
-        return jsonify({
-            "status": "success",
-            "logs": [line.strip() for line in last_lines]
-        }), 200
-    except Exception as e:
-        return jsonify({
-            "status": "error",
-            "message": f"Gagal membaca log: {e}"
-        }), 500
-
-## TAMBAHAN: FUNGSI CALLBACK UNTUK SENSOR
-def coin_sensor_callback(gpio, level, tick):
-    """Callback yang dipanggil setiap sensor mendeteksi koin."""
-    global dispensed_coin_count
-    dispensed_coin_count += 1
-    log_system(f"Sensor mendeteksi koin, total keluar: {dispensed_coin_count}")
-
-## DIGANTI: FUNGSI PENGEMBALIAN DENGAN LOGIKA SENSOR
-def dispense_change(amount_to_dispense):
-    """Mengeluarkan kembalian koin secara akurat menggunakan sensor."""
-    global dispensed_coin_count, hopper_callback
-
-    if COIN_VALUE <= 0:
-        log_system("ERROR: Nilai koin (COIN_VALUE) belum diatur!", "error")
-        return
-
-    num_coins_to_dispense = int(amount_to_dispense / COIN_VALUE)
-    
-    if num_coins_to_dispense > 0:
-        log_trans(f"Memberikan kembalian Rp.{amount_to_dispense} ({num_coins_to_dispense} koin).")
+        process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         
-        dispensed_coin_count = 0
-        # Mengatur callback untuk mendeteksi tepi jatuh (sinyal dari HIGH ke LOW)
-        hopper_callback = pi.callback(SENSOR_PIN, pigpio.FALLING_EDGE, coin_sensor_callback)
-        
-        pi.write(HOPPER_PIN, 1) # Nyalakan motor hopper
-        
-        start_time = time.time()
-        # Tunggu sampai jumlah koin sesuai atau timeout (misal: 15 detik)
-        while dispensed_coin_count < num_coins_to_dispense:
-            if time.time() - start_time > 15: # Timeout 15 detik untuk mencegah hopper macet
-                log_system(f"Timeout! Hopper hanya mengeluarkan {dispensed_coin_count} koin.", "error")
+        while True:
+            output = process.stdout.readline()
+            if output == '' and process.poll() is not None:
                 break
-            time.sleep(0.1)
-            
-        pi.write(HOPPER_PIN, 0) # Matikan motor hopper
-        if hopper_callback:
-            hopper_callback.cancel() # Hentikan callback sensor
-        log_system("Proses pengembalian selesai.")
-
-#FUNCTION TO TRIGGER A NEW TRANSACTION
-def trigger_transaction():
-    global transaction_active, total_inserted, id_trx, payment_token, product_price, last_pulse_received_time, pending_pulse_count
-    
-    while True:
-        if transaction_active:
-            time.sleep(1) 
-            continue
-
-        print(" Mencari payment token terbaru...")
+            if output:
+                print(output.strip())
         
-        try:
-            response = requests.get(TOKEN_API, timeout=1)
-            response_data = response.json()
+        if process.returncode != 0:
+            raise subprocess.CalledProcessError(process.returncode, command)
 
-            if response.status_code == 200 and "data" in response_data:
-                for token_data in response_data["data"]:
-                    created_time = datetime.datetime.strptime(token_data["CreatedAt"], "%Y-%m-%dT%H:%M:%S.%fZ") 
-                    created_time = created_time.replace(tzinfo=datetime.timezone.utc) 
-                    age_in_minutes = (datetime.datetime.now(datetime.timezone.utc) - created_time).total_seconds() / 60
-                    
-                    if age_in_minutes <= 3:  
-                        payment_token = token_data["PaymentToken"]
-                        log_system(f" Token ditemukan: {payment_token}, umur: {age_in_minutes:.2f} menit")
+        print_log(f"Berhasil menjalankan: {command}")
 
-                        invoice_response = requests.get(f"{INVOICE_API}{payment_token}", timeout=5)
-                        invoice_data = invoice_response.json()
+    except subprocess.CalledProcessError as e:
+        print_log(f"Gagal menjalankan: {command}\nError: {e}", "error")
 
-                        if invoice_response.status_code == 200 and "data" in invoice_data:
-                            invoice = invoice_data["data"]
-                            if not invoice.get("isPaid", False):
-                                id_trx = invoice["ID"]
-                                product_price = int(invoice["productPrice"])
+def install_dependencies():
+    """Menginstal semua dependensi yang dibutuhkan."""
+    print_log("📦 Menginstal dependensi...")
+    
+    # --- PERUBAHAN DI SINI ---
+    # Menjadikan proses upgrade opsional
+    run_command("sudo apt update")
+    upgrade_choice = input("❓ Apakah Anda ingin menjalankan full system upgrade? (Ini bisa memakan waktu lama) (y/n): ").strip().lower()
+    if upgrade_choice == 'y':
+        run_command("sudo apt upgrade -y")
+    else:
+        print_log("Proses upgrade dilewati.", "warning")
 
-                                transaction_active = True
-                                pending_pulse_count = 0 
-                                last_pulse_received_time = time.time()
-                                log_system(f" Transaksi dimulai! ID: {id_trx}, Token: {payment_token}, Tagihan: Rp.{product_price}")
-                                log_trans(f" Transaksi dimulai! ID: {id_trx}, Token: {payment_token}, Tagihan: Rp.{product_price}")
-                                pi.write(EN_PIN, 1)
-                                log_system(f"EN Diaktifkan  (Token)")
-                                threading.Thread(target=start_timeout_timer, daemon=True).start()
-                                return
-                            else:
-                                log_system(f"⚠ Invoice {payment_token} sudah dibayar, mencari lagi...")
+    # Daftar dependensi lain yang akan tetap diinstal
+    dependencies = [
+        "sudo apt install -y python3-pip git",
+        "sudo pip3 install flask requests psutil flask_cors python-dotenv --break-system-packages",
+        "sudo apt install -y ufw",
+        "sudo systemctl start pigpiod",
+        "sudo systemctl enable pigpiod"
+    ]
+    for dep in dependencies:
+        run_command(dep)
+    print_log("✅ Semua dependensi telah terinstal.")
 
-            print(" Tidak ada payment token yang memenuhi syarat. Menunggu...")
-            time.sleep(1)
+def replace_line_in_file(filename, pattern, replacement):
+    """Mengganti baris dalam file berdasarkan pola tertentu."""
+    if not os.path.exists(filename):
+        print_log(f"❌ File tidak ditemukan: {filename}", "error")
+        return  
+    try:
+        with open(filename, "r") as file:
+            lines = file.readlines()
+        
+        with open(filename, "w") as file:
+            for line in lines:
+                if re.search(pattern, line):
+                    file.write(replacement + "\n")
+                else:
+                    file.write(line)
+        print_log(f"✅ Berhasil mengedit file: {filename}")
+    except FileNotFoundError:
+        print_log(f"❌ File tidak ditemukan: {filename}", "error")
 
-        except requests.exceptions.RequestException as e:
-            log_system(f" Gagal mengambil daftar payment token: {e}")
-            time.sleep(1)
+def write_env_file(filename, device_id, token_api, invoice_api, bill_api, log_dir, flask_port, hopper_pin, sensor_pin, coin_value):
+    with open(filename, "w") as env_file:
+        env_file.write("# Konfigurasi Utama\n")
+        env_file.write(f'ID_DEVICE="{device_id}"\n')
+        env_file.write(f'TOKEN_API="{token_api}"\n')
+        env_file.write(f'INVOICE_API="{invoice_api}"\n')
+        env_file.write(f'BILL_API="{bill_api}"\n')
+        env_file.write(f'LOG_DIR="{log_dir}"\n')
+        env_file.write(f'PORT={flask_port}\n\n')
+        
+        env_file.write("# Konfigurasi Coin Hopper & Sensor\n")
+        env_file.write(f'HOPPER_PIN={hopper_pin}\n')
+        env_file.write(f'SENSOR_PIN={sensor_pin}\n')
+        env_file.write(f'COIN_VALUE={coin_value}\n')
+
+def configure_files(python_path):
+    """Mengedit file konfigurasi dengan parameter yang diberikan."""
+    print_log("🛠️ Mengonfigurasi file...")
+    replace_line_in_file("billacceptor.service", r'ExecStart=.*', f'ExecStart=/usr/bin/python3 {python_path}/billacceptor.py')
+
+def move_files(python_path, rollback_path):
+    """Memindahkan file ke lokasi yang sesuai."""
+    print_log("📂 Memindahkan file konfigurasi...")
+    run_command("sudo mv billacceptor.service /etc/systemd/system/")
+    run_command(f"sudo mv billacceptor.py {python_path}")
+    run_command(f"sudo mv rollback.py {rollback_path}")
+    run_command(f"sudo mv setup.log {rollback_path}")
+
+def configure_ufw(flask_port):
+    """Mengonfigurasi firewall UFW."""
+    print_log("🔐 Mengonfigurasi UFW...")
+    run_command(f"sudo ufw allow {flask_port}")
+    run_command("sudo ufw --force enable")
+
+def enable_service():
+    """Mengaktifkan service billacceptor."""
+    print_log("🚀 Mengaktifkan service Bill Acceptor...")
+    run_command("sudo systemctl daemon-reload")
+    run_command("sudo systemctl enable billacceptor.service")
+    run_command("sudo systemctl start billacceptor.service")
+
+def write_setup_log(filename, data):
+    """Menuliskan data setup ke dalam file log."""
+    try:
+        with open(filename, "a") as log_file:
+            log_file.write(data + "\n")
+    except PermissionError:
+        print_log(f"❌ Tidak bisa menulis ke {filename}. Coba jalankan dengan sudo.", "error")
+    except Exception as e:
+        print_log(f"Gagal menulis log setup: {e}", "error")
+
+def ensure_directory_exists(directory):
+    """Membuat folder jika belum ada."""
+    if not os.path.exists(directory):
+        os.makedirs(directory, exist_ok=True)
+        print_log(f"📁 Membuat folder: {directory}")
+    else:
+        print_log(f"✅ Folder sudah ada: {directory}")
+
+def lmxugmxpolinema(ascii1, ascii2, watermark="--**UGM x POLINEMA**--"):
+    lines1 = ascii1.strip('\n').split('\n')
+    lines2 = ascii2.strip('\n').split('\n')
+
+    max_lines = max(len(lines1), len(lines2))
+    lines1 += [""] * (max_lines - len(lines1))
+    lines2 += [""] * (max_lines - len(lines2))
+
+    max_width1 = max(len(line) for line in lines1)
+    output_lines = []
+
+    for line1, line2 in zip(lines1, lines2):
+        combined = line1.ljust(max_width1 + 4) + line2
+        output_lines.append(combined)
+
+    total_width = len(output_lines[0])
+    centered_watermark = watermark.center(total_width)
+    output_lines.append("")
+    output_lines.append(centered_watermark)
+
+    print("\n".join(output_lines))
 
 if __name__ == "__main__":
-    pi.callback(BILL_ACCEPTOR_PIN, pigpio.RISING_EDGE, count_pulse)
-    threading.Thread(target=trigger_transaction, daemon=True).start()
-    app.run(host="0.0.0.0", port=PORT, debug=False, use_reloader=False)
+    setup_log_file = "setup.log"
+    
+    lmxugmxpolinema(ugm, polinema)
+    print("\n🔧 **Setup Bill Acceptor**\n")
+
+    # Input dari pengguna
+    device_id = input("Masukkan ID Device: ")
+    write_setup_log(setup_log_file, f"ID_DEVICE: {device_id}\n")
+
+    token_api = input("Masukkan URL TOKEN_API: ")
+    write_setup_log(setup_log_file, f"TOKEN_API: {token_api}\n")
+
+    invoice_api = input("Masukkan URL INVOICE_API: ")
+    write_setup_log(setup_log_file, f"INVOICE_API: {invoice_api}\n")
+
+    bill_api = input("Masukkan URL BILL_API: ")
+    write_setup_log(setup_log_file, f"BILL_API: {bill_api}\n")
+
+    python_path = input("Masukkan path penyimpanan billacceptor.py (Contoh: /home/pi/billacceptor): ")
+    ensure_directory_exists(python_path)
+    write_setup_log(setup_log_file, f"Python Path: {python_path}\n")
+
+    log_dir = python_path
+    print_log(f"📁 LOG_DIR disetel ke: {log_dir}")
+    write_setup_log(setup_log_file, f"LOG_DIR: {log_dir}\n")
+
+    flask_port = input("Masukkan port Flask (Contoh: 5000): ")
+    write_setup_log(setup_log_file, f"Flask Port: {flask_port}\n")
+
+    hopper_pin = input("Masukkan pin GPIO untuk Coin Hopper (Contoh: 23): ")
+    write_setup_log(setup_log_file, f"HOPPER_PIN: {hopper_pin}\n")
+
+    sensor_pin = input("Masukkan pin GPIO untuk Sensor Hopper (Contoh: 24): ")
+    write_setup_log(setup_log_file, f"SENSOR_PIN: {sensor_pin}\n")
+    
+    coin_value = input("Masukkan nominal koin di hopper (Contoh: 1000): ")
+    write_setup_log(setup_log_file, f"COIN_VALUE: {coin_value}\n")
+
+    rollback_path = input("Masukkan path penyimpanan rollback.py (Contoh: /home/pi/billacceptor): ")
+    ensure_directory_exists(rollback_path)
+    write_setup_log(setup_log_file, f"Rollback Path: {rollback_path}\n")
+
+    # Tulis file .env
+    env_path = os.path.join(python_path, ".env")
+    write_env_file(
+        env_path, device_id, token_api, invoice_api, bill_api, 
+        log_dir, flask_port, hopper_pin, sensor_pin, coin_value
+    )
+    print_log(f"✅ File .env berhasil dibuat di: {env_path}")
+
+    # Jalankan semua fungsi
+    install_dependencies()
+    configure_files(python_path)
+    move_files(python_path, rollback_path)
+    configure_ufw(flask_port)
+    enable_service()
+
+    print("\n🎉 **Setup selesai! Bill Acceptor sudah terinstal dan berjalan.** 🎉")
+    print_log("🎉 Setup selesai! Bill Acceptor sudah terinstal dan berjalan.")
