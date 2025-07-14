@@ -92,18 +92,40 @@ def print_log(message, level="info"):
         logging.error(message)
 
 def run_command(command):
-    """Menjalankan perintah shell dengan subprocess dan menangani error."""
+    """Menjalankan perintah shell dengan subprocess dan menampilkan outputnya."""
     try:
-        subprocess.run(command, check=True, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        
+        while True:
+            output = process.stdout.readline()
+            if output == '' and process.poll() is not None:
+                break
+            if output:
+                print(output.strip())
+        
+        if process.returncode != 0:
+            raise subprocess.CalledProcessError(process.returncode, command)
+
         print_log(f"Berhasil menjalankan: {command}")
+
     except subprocess.CalledProcessError as e:
         print_log(f"Gagal menjalankan: {command}\nError: {e}", "error")
 
 def install_dependencies():
     """Menginstal semua dependensi yang dibutuhkan."""
     print_log("📦 Menginstal dependensi...")
+    
+    # --- PERUBAHAN DI SINI ---
+    # Menjadikan proses upgrade opsional
+    run_command("sudo apt update")
+    upgrade_choice = input("❓ Apakah Anda ingin menjalankan full system upgrade? (Ini bisa memakan waktu lama) (y/n): ").strip().lower()
+    if upgrade_choice == 'y':
+        run_command("sudo apt upgrade -y")
+    else:
+        print_log("Proses upgrade dilewati.", "warning")
+
+    # Daftar dependensi lain yang akan tetap diinstal
     dependencies = [
-        "sudo apt update && sudo apt upgrade -y",
         "sudo apt install -y python3-pip git",
         "sudo pip3 install flask requests psutil flask_cors python-dotenv --break-system-packages",
         "sudo apt install -y ufw",
@@ -142,6 +164,7 @@ def write_env_file(filename, device_id, token_api, invoice_api, bill_api, log_di
         env_file.write(f'BILL_API="{bill_api}"\n')
         env_file.write(f'LOG_DIR="{log_dir}"\n')
         env_file.write(f'PORT={flask_port}\n\n')
+        
         env_file.write("# Konfigurasi Coin Hopper & Sensor\n")
         env_file.write(f'HOPPER_PIN={hopper_pin}\n')
         env_file.write(f'SENSOR_PIN={sensor_pin}\n')
