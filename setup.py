@@ -275,7 +275,7 @@ if __name__ == "__main__":
     coin_value = input("Masukkan nominal koin di hopper (Contoh: 1000): ")
     write_setup_log(setup_log_file, f"COIN_VALUE: {coin_value}\n")
 
-    rollback_path = input("Masukkan path penyimpanan rollback.py (Contoh: /home/pi/billacceptor): ")
+    rollback_path = input("Masukkan path penyimpanan rollback.py (Contoh: /home/eksan/rollbcak): ")
     ensure_directory_exists(rollback_path)
     write_setup_log(setup_log_file, f"Rollback Path: {rollback_path}\n")
 
