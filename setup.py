@@ -266,10 +266,10 @@ if __name__ == "__main__":
     flask_port = input("Masukkan port Flask (Contoh: 5000): ")
     write_setup_log(setup_log_file, f"Flask Port: {flask_port}\n")
 
-    hopper_pin = input("Masukkan pin GPIO untuk Coin Hopper (Contoh: 23): ")
+    hopper_pin = input("Masukkan pin GPIO untuk Coin Hopper (Contoh: 18): ")
     write_setup_log(setup_log_file, f"HOPPER_PIN: {hopper_pin}\n")
 
-    sensor_pin = input("Masukkan pin GPIO untuk Sensor Hopper (Contoh: 24): ")
+    sensor_pin = input("Masukkan pin GPIO untuk Sensor Hopper (Contoh: 23): ")
     write_setup_log(setup_log_file, f"SENSOR_PIN: {sensor_pin}\n")
     
     coin_value = input("Masukkan nominal koin di hopper (Contoh: 1000): ")
