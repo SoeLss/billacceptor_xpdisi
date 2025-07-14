@@ -2,6 +2,8 @@ import os
 import re
 import subprocess
 import logging
+import threading
+import time
 
 polinema = ("""                              .:x;.                              
                          :;XX; .::..+$x:.                        
@@ -81,6 +83,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 
 def print_log(message, level="info"):
     """Mencetak pesan ke terminal dan mencatat log."""
+    # Gunakan \r dan end='' untuk memastikan log tetap di baris baru setelah animasi
+    print('\r' + ' ' * 80 + '\r', end='')
     if level == "info":
         print(f"✅ {message}")
         logging.info(message)
@@ -91,44 +95,64 @@ def print_log(message, level="info"):
         print(f"❌ {message}")
         logging.error(message)
 
+def animate_loading(stop_event, command_name):
+    """Fungsi untuk menampilkan animasi spinner di thread terpisah."""
+    spinner_chars = ['-', '\\', '|', '/']
+    idx = 0
+    while not stop_event.is_set():
+        # Menggunakan \r (carriage return) untuk kembali ke awal baris
+        print(f'\r{spinner_chars[idx % len(spinner_chars)]} Menjalankan: {command_name}...', end='')
+        idx += 1
+        time.sleep(0.1)
+    # Membersihkan baris animasi setelah selesai
+    print('\r' + ' ' * (len(command_name) + 20) + '\r', end='')
+
 def run_command(command):
-    """Menjalankan perintah shell dengan subprocess dan menampilkan outputnya."""
+    """Menjalankan perintah shell dengan animasi loading dan menangani error."""
+    stop_loading_event = threading.Event()
+    
+    # Mengambil bagian awal dari perintah untuk ditampilkan sebagai nama
+    if len(command) > 40:
+        command_display_name = command[:37] + "..."
+    else:
+        command_display_name = command
+
+    loading_thread = threading.Thread(target=animate_loading, args=(stop_loading_event, command_display_name))
+    
     try:
-        process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        loading_thread.start()
+        # Jalankan perintah tanpa menampilkan outputnya (mode senyap)
+        subprocess.run(command, check=True, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         
-        while True:
-            output = process.stdout.readline()
-            if output == '' and process.poll() is not None:
-                break
-            if output:
-                print(output.strip())
+        # Hentikan animasi setelah selesai
+        stop_loading_event.set()
+        loading_thread.join()
         
-        if process.returncode != 0:
-            raise subprocess.CalledProcessError(process.returncode, command)
+        print_log(f"Berhasil menjalankan: {command_display_name}")
 
-        print_log(f"Berhasil menjalankan: {command}")
-
-    except subprocess.CalledProcessError as e:
-        print_log(f"Gagal menjalankan: {command}\nError: {e}", "error")
+    except (subprocess.CalledProcessError, KeyboardInterrupt) as e:
+        # Hentikan animasi jika terjadi error atau interupsi
+        stop_loading_event.set()
+        loading_thread.join()
+        print_log(f"Gagal atau dibatalkan: {command_display_name}\nError: {e}", "error")
+        # Keluar dari script jika ada perintah yang gagal
+        exit(1)
 
 def install_dependencies():
     """Menginstal semua dependensi yang dibutuhkan."""
     print_log("📦 Menginstal dependensi...")
     
-    # --- PERUBAHAN DI SINI ---
-    # Menjadikan proses upgrade opsional
     run_command("sudo apt update")
     upgrade_choice = input("❓ Apakah Anda ingin menjalankan full system upgrade? (Ini bisa memakan waktu lama) (y/n): ").strip().lower()
     if upgrade_choice == 'y':
-        run_command("sudo apt upgrade -y")
+        run_command("sudo apt-get upgrade -y") # Menggunakan apt-get untuk kompatibilitas lebih luas
     else:
         print_log("Proses upgrade dilewati.", "warning")
 
-    # Daftar dependensi lain yang akan tetap diinstal
     dependencies = [
-        "sudo apt install -y python3-pip git",
+        "sudo apt-get install -y python3-pip git",
         "sudo pip3 install flask requests psutil flask_cors python-dotenv --break-system-packages",
-        "sudo apt install -y ufw",
+        "sudo apt-get install -y ufw",
         "sudo systemctl start pigpiod",
         "sudo systemctl enable pigpiod"
     ]
@@ -200,7 +224,7 @@ def write_setup_log(filename, data):
     """Menuliskan data setup ke dalam file log."""
     try:
         with open(filename, "a") as log_file:
-            log_file.write(data + "\n")
+            log_file.write(data)
     except PermissionError:
         print_log(f"❌ Tidak bisa menulis ke {filename}. Coba jalankan dengan sudo.", "error")
     except Exception as e:
@@ -222,14 +246,20 @@ def lmxugmxpolinema(ascii1, ascii2, watermark="--**UGM x POLINEMA**--"):
     lines1 += [""] * (max_lines - len(lines1))
     lines2 += [""] * (max_lines - len(lines2))
 
-    max_width1 = max(len(line) for line in lines1)
+    # Perbaiki jika salah satu ASCII art kosong
+    if not any(lines1): max_width1 = 0
+    else: max_width1 = max(len(line) for line in lines1)
+
     output_lines = []
 
     for line1, line2 in zip(lines1, lines2):
         combined = line1.ljust(max_width1 + 4) + line2
         output_lines.append(combined)
 
-    total_width = len(output_lines[0])
+    # Perbaiki jika output_lines kosong
+    if not output_lines: total_width = 0
+    else: total_width = len(output_lines[0])
+
     centered_watermark = watermark.center(total_width)
     output_lines.append("")
     output_lines.append(centered_watermark)
@@ -238,6 +268,9 @@ def lmxugmxpolinema(ascii1, ascii2, watermark="--**UGM x POLINEMA**--"):
 
 if __name__ == "__main__":
     setup_log_file = "setup.log"
+    # Hapus log setup lama jika ada, untuk memulai sesi baru
+    if os.path.exists(setup_log_file):
+        os.remove(setup_log_file)
     
     lmxugmxpolinema(ugm, polinema)
     print("\n🔧 **Setup Bill Acceptor**\n")
@@ -255,7 +288,7 @@ if __name__ == "__main__":
     bill_api = input("Masukkan URL BILL_API: ")
     write_setup_log(setup_log_file, f"BILL_API: {bill_api}\n")
 
-    python_path = input("Masukkan path penyimpanan billacceptor.py (Contoh: /home/pi/billacceptor): ")
+    python_path = input("Masukkan path penyimpanan billacceptor.py (Contoh: /home/eksan/billacceptor): ")
     ensure_directory_exists(python_path)
     write_setup_log(setup_log_file, f"Python Path: {python_path}\n")
 
@@ -275,7 +308,7 @@ if __name__ == "__main__":
     coin_value = input("Masukkan nominal koin di hopper (Contoh: 1000): ")
     write_setup_log(setup_log_file, f"COIN_VALUE: {coin_value}\n")
 
-    rollback_path = input("Masukkan path penyimpanan rollback.py (Contoh: /home/eksan/rollbcak): ")
+    rollback_path = input("Masukkan path penyimpanan rollback.py (Contoh: /home/eksan/rollback): ")
     ensure_directory_exists(rollback_path)
     write_setup_log(setup_log_file, f"Rollback Path: {rollback_path}\n")
 
